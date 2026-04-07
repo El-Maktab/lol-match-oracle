@@ -1,4 +1,4 @@
-# LOL Match Oracle:
+# LOL Match Oracle
 
 League of Legends match outcome prediction with ✨ Machine Learning ✨
 
