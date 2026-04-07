@@ -8,7 +8,10 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "ipykernel>=7.2.0",
     "kaggle>=2.0.0",
+    "pandas>=3.0.2",
+    "pip>=26.0.1",
     "python-dotenv>=1.0.1",
 ]
 
