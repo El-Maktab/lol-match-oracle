@@ -11,10 +11,14 @@ dependencies = [
     "ipykernel>=7.2.0",
     "kaggle>=2.0.0",
     "matplotlib>=3.10.8",
+    "missingno>=0.5.2",
+    "nbformat>=5.10.4",
     "pandas>=3.0.2",
     "pip>=26.0.1",
+    "plotly>=6.6.0",
     "python-dotenv>=1.0.1",
     "seaborn>=0.13.2",
+    "statsmodels>=0.14.6",
 ]
 
 [dependency-groups]
