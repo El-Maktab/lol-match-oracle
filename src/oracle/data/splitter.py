@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from ..utils.constants import DEFAULT_RANDOM_STATE, DEFAULT_TEST_SIZE, DEFAULT_VAL_SIZE
+
 
 @dataclass(slots=True)
 class DatasetSplit:
@@ -20,9 +22,9 @@ def split_train_val_test(
     df: pd.DataFrame,
     *,
     target_col: str = "win",
-    test_size: float = 0.2,
-    val_size: float = 0.1,
-    random_state: int = 42,
+    test_size: float = DEFAULT_TEST_SIZE,
+    val_size: float = DEFAULT_VAL_SIZE,
+    random_state: int = DEFAULT_RANDOM_STATE,
 ) -> DatasetSplit:
     if target_col not in df.columns:
         raise ValueError(f"Target column '{target_col}' was not found in dataframe")

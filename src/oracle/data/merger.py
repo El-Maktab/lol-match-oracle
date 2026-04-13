@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from ..utils.constants import BLUE_TEAM_ID, RED_TEAM_ID
+
 
 def _coerce_int(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     out = df.copy()
@@ -39,7 +41,7 @@ def merge_match_level_dataset(
 
     # Infer team side from player slot for participant-level rows.
     merged["teamid"] = merged["player"].apply(
-        lambda x: 100 if pd.notna(x) and int(x) <= 5 else 200
+        lambda x: BLUE_TEAM_ID if pd.notna(x) and int(x) <= 5 else RED_TEAM_ID
     )
 
     merged = merged.merge(

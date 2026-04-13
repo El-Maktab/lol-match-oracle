@@ -4,13 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-RAW_TABLE_FILES = {
-    "champs": "champs.csv",
-    "matches": "matches.csv",
-    "participants": "participants.csv",
-    "teambans": "teambans.csv",
-    "teamstats": "teamstats.csv",
-}
+from ..utils.constants import RAW_TABLE_FILES
 
 
 def _read_csv(path: Path, nrows: int | None = None) -> pd.DataFrame:

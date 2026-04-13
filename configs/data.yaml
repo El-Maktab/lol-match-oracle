@@ -1,0 +1,9 @@
+data_dir: data
+raw_dir: data/raw
+interim_dir: data/interim
+processed_dir: data/processed
+target_column: win
+test_size: 0.2
+val_size: 0.1
+random_state: 42
+include_champs: true
