@@ -7,16 +7,27 @@ import pandas as pd
 from ..utils.constants import RAW_TABLE_FILES
 
 
-def _read_csv(path: Path, nrows: int | None = None) -> pd.DataFrame:
+STATS_DTYPE_OVERRIDES: dict[str, str] = {"wardsbought": "Int64"}
+
+
+def _read_csv(
+    path: Path,
+    nrows: int | None = None,
+    dtype: dict[str, str] | None = None,
+) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Missing required file: {path}")
-    return pd.read_csv(path, nrows=nrows)
+    return pd.read_csv(path, nrows=nrows, dtype=dtype, na_values=["\\N"])
 
 
 def load_stats_table(data_dir: str | Path, nrows: int | None = None) -> pd.DataFrame:
     data_path = Path(data_dir)
-    stats1 = _read_csv(data_path / "stats1.csv", nrows=nrows)
-    stats2 = _read_csv(data_path / "stats2.csv", nrows=nrows)
+    stats1 = _read_csv(
+        data_path / "stats1.csv", nrows=nrows, dtype=STATS_DTYPE_OVERRIDES
+    )
+    stats2 = _read_csv(
+        data_path / "stats2.csv", nrows=nrows, dtype=STATS_DTYPE_OVERRIDES
+    )
 
     # Keep a stable schema even if source column order changes.
     stats2 = stats2.reindex(columns=stats1.columns)

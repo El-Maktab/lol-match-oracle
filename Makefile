@@ -1,14 +1,15 @@
 # NOTE: Just used to simplify running commands :)
 
-.PHONY: help setup lint data
+.PHONY: help setup lint data pipeline run-data
 
 help:
 	@echo "Available commands:"
 	@echo ""
-	@echo "  help   : Show this help message"
-	@echo "  setup  : Create virtual environment and install dependencies"
-	@echo "  data   : Download Kaggle dataset to data/raw"
-	@echo "  lint   : Run lint" 
+	@echo "  help     : Show this help message"
+	@echo "  setup    : Create virtual environment and install dependencies"
+	@echo "  data     : Download Kaggle dataset to data/raw"
+	@echo "  pipeline : Run the data pipeline and write split datasets"
+	@echo "  lint     : Run lint" 
 	@echo ""
 
 setup:
@@ -20,3 +21,6 @@ lint:
 
 data:
 	uv run python scripts/download_data.py
+
+pipeline:
+	uv run python scripts/run_pipeline.py

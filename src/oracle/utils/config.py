@@ -79,6 +79,7 @@ class DataConfig:
     interim_dir: Path = INTERIM_DATA_DIR
     processed_dir: Path = PROCESSED_DATA_DIR
     target_column: str = TARGET_COLUMN
+    group_column: str | None = "matchid"
     test_size: float = DEFAULT_TEST_SIZE
     val_size: float = DEFAULT_VAL_SIZE
     random_state: int = DEFAULT_RANDOM_STATE
@@ -103,6 +104,11 @@ class DataConfig:
                 mapping.get("processed_dir", PROCESSED_DATA_DIR), base_dir
             ),
             target_column=str(mapping.get("target_column", TARGET_COLUMN)),
+            group_column=(
+                None
+                if mapping.get("group_column", "matchid") is None
+                else str(mapping.get("group_column", "matchid"))
+            ),
             test_size=float(mapping.get("test_size", DEFAULT_TEST_SIZE)),
             val_size=float(mapping.get("val_size", DEFAULT_VAL_SIZE)),
             random_state=int(mapping.get("random_state", DEFAULT_RANDOM_STATE)),
@@ -116,6 +122,7 @@ class DataConfig:
             "interim_dir": self.interim_dir,
             "processed_dir": self.processed_dir,
             "target_column": self.target_column,
+            "group_column": self.group_column,
             "test_size": self.test_size,
             "val_size": self.val_size,
             "random_state": self.random_state,
