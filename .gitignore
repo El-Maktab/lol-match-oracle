@@ -2,6 +2,7 @@
 
 ################# CUSTOM #################
 data/
+!src/oracle/data/
 .env
 .env.*
 !.env.example
