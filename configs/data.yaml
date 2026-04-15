@@ -8,3 +8,4 @@ test_size: 0.2
 val_size: 0.1
 random_state: 42
 include_champs: true
+min_curated_duration_seconds: 300

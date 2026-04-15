@@ -94,7 +94,10 @@ def build_pipeline(
     )
 
     logger.info("Cleaning merged dataset")
-    cleaned = clean_match_dataset(merged)
+    cleaned = clean_match_dataset(
+        merged,
+        min_duration_seconds=config.min_curated_duration_seconds,
+    )
 
     if config.target_column not in cleaned.columns:
         raise ValueError(
@@ -152,6 +155,7 @@ def build_pipeline(
             "val_size": config.val_size,
             "random_state": config.random_state,
             "include_champs": config.include_champs,
+            "min_curated_duration_seconds": config.min_curated_duration_seconds,
         },
         "raw_tables": {
             name: {

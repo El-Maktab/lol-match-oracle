@@ -1,6 +1,6 @@
 # NOTE: Just used to simplify running commands :)
 
-.PHONY: help setup lint data pipeline run-data
+.PHONY: help setup lint data pipeline validate run-data
 
 help:
 	@echo "Available commands:"
@@ -9,6 +9,7 @@ help:
 	@echo "  setup    : Create virtual environment and install dependencies"
 	@echo "  data     : Download Kaggle dataset to data/raw"
 	@echo "  pipeline : Run the data pipeline and write split datasets"
+	@echo "  validate : Run Great Expectations data quality checkpoints"
 	@echo "  lint     : Run lint" 
 	@echo ""
 
@@ -24,3 +25,6 @@ data:
 
 pipeline:
 	uv run python scripts/run_pipeline.py
+
+validate:
+	uv run python scripts/run_data_quality.py

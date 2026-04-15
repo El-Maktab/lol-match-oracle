@@ -6,6 +6,7 @@ data/
 .env
 .env.*
 !.env.example
+great_expectations/
 ##########################################
 
 

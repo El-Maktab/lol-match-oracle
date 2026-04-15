@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 from .constants import (
     CONFIGS_DIR,
+    DEFAULT_MIN_CURATED_DURATION_SECONDS,
     DATA_DIR,
     DEFAULT_RANDOM_STATE,
     DEFAULT_TEST_SIZE,
@@ -84,6 +85,7 @@ class DataConfig:
     val_size: float = DEFAULT_VAL_SIZE
     random_state: int = DEFAULT_RANDOM_STATE
     include_champs: bool = True
+    min_curated_duration_seconds: int = DEFAULT_MIN_CURATED_DURATION_SECONDS
 
     @classmethod
     def from_mapping(
@@ -113,6 +115,12 @@ class DataConfig:
             val_size=float(mapping.get("val_size", DEFAULT_VAL_SIZE)),
             random_state=int(mapping.get("random_state", DEFAULT_RANDOM_STATE)),
             include_champs=bool(mapping.get("include_champs", True)),
+            min_curated_duration_seconds=int(
+                mapping.get(
+                    "min_curated_duration_seconds",
+                    DEFAULT_MIN_CURATED_DURATION_SECONDS,
+                )
+            ),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -127,6 +135,7 @@ class DataConfig:
             "val_size": self.val_size,
             "random_state": self.random_state,
             "include_champs": self.include_champs,
+            "min_curated_duration_seconds": self.min_curated_duration_seconds,
         }
 
 
