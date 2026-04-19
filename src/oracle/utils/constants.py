@@ -23,6 +23,9 @@ DEFAULT_MIN_CURATED_DURATION_SECONDS = 300
 
 BLUE_TEAM_ID = 100
 RED_TEAM_ID = 200
+TEAM_IDS = [BLUE_TEAM_ID, RED_TEAM_ID]
+TEAM_KEY_COLUMNS = ["matchid", "teamid"]
+EXPECTED_TEAM_ROWS_PER_MATCH = 2
 
 TARGET_COLUMN = "win"
 
@@ -38,11 +41,13 @@ RAW_TABLE_FILES = {
 
 BINARY_COLUMNS = [
     "win",
+    "is_blue_side",
     "firstblood",
     "firsttower",
     "firstinhib",
     "firstbaron",
     "firstdragon",
+    "firstharry",
 ]
 
 NON_NEGATIVE_COLUMNS = [
@@ -66,6 +71,7 @@ __all__ = [
     "DEFAULT_TEST_SIZE",
     "DEFAULT_VAL_SIZE",
     "DOCS_DIR",
+    "EXPECTED_TEAM_ROWS_PER_MATCH",
     "EXTERNAL_DATA_DIR",
     "INTERIM_DATA_DIR",
     "MLRUNS_DIR",
@@ -76,6 +82,8 @@ __all__ = [
     "RAW_DATA_DIR",
     "RAW_TABLE_FILES",
     "RED_TEAM_ID",
+    "TEAM_IDS",
+    "TEAM_KEY_COLUMNS",
     "REPORTS_DIR",
     "SRC_DIR",
     "TARGET_COLUMN",

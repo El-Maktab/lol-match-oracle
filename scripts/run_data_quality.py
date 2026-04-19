@@ -15,6 +15,10 @@ import pandas as pd
 
 from oracle.data import clean_match_dataset, load_raw_tables, merge_match_level_dataset
 from oracle.utils import get_logger, load_data_config
+from oracle.utils.constants import (
+    EXPECTED_TEAM_ROWS_PER_MATCH,
+    TEAM_IDS,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,10 +41,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def _ensure_batch_definition(asset: Any, batch_definition_name: str) -> Any:
-    try:
-        return asset.get_batch_definition(batch_definition_name)
-    except Exception:
-        return asset.add_batch_definition_whole_dataframe(batch_definition_name)
+    for batch_definition in getattr(asset, "batch_definitions", []):
+        if getattr(batch_definition, "name", None) == batch_definition_name:
+            return batch_definition
+    return asset.add_batch_definition_whole_dataframe(batch_definition_name)
 
 
 def _prepare_validator(validator: Any) -> Any:
@@ -103,8 +107,17 @@ def _add_raw_stats_expectations(validator: Any) -> None:
 
 
 def _add_processed_expectations(validator: Any, processed_df: pd.DataFrame) -> None:
+    required_columns = ["matchid", "teamid", "win"]
+    for col in required_columns:
+        validator.expect_column_to_exist(col)
+
     validator.expect_column_to_exist("win")
+    validator.expect_table_column_count_to_be_between(min_value=10)
     validator.expect_column_values_to_be_in_set("win", [0, 1])
+    validator.expect_column_values_to_be_in_set("teamid", TEAM_IDS)
+    if "is_blue_side" in processed_df.columns:
+        validator.expect_column_values_to_be_in_set("is_blue_side", [0, 1])
+    validator.expect_compound_columns_to_be_unique(column_list=["matchid", "teamid"])
 
     for col in processed_df.columns:
         validator.expect_column_values_to_not_be_null(col)
@@ -113,6 +126,8 @@ def _add_processed_expectations(validator: Any, processed_df: pd.DataFrame) -> N
         "winner",
         "result",
         "bluewins",
+        "match_result",
+        "final_result",
     ]
     present_leakage = [col for col in leakage_columns if col in processed_df.columns]
     if present_leakage:
@@ -120,6 +135,72 @@ def _add_processed_expectations(validator: Any, processed_df: pd.DataFrame) -> N
             "Data leakage columns found in processed features: "
             + ", ".join(present_leakage)
         )
+
+
+def _assert_team_constraints(frame: pd.DataFrame, *, dataset_name: str) -> None:
+    required = ["matchid", "teamid", "win"]
+    missing = [col for col in required if col not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"{dataset_name} missing required team-level columns: {', '.join(missing)}"
+        )
+
+    duplicate_keys = int(frame.duplicated(subset=["matchid", "teamid"]).sum())
+    if duplicate_keys:
+        raise ValueError(
+            f"{dataset_name} has duplicate match/team keys: {duplicate_keys}."
+        )
+
+    teamid_values = pd.to_numeric(frame["teamid"], errors="coerce")
+    invalid_team_rows = int((~teamid_values.isin(TEAM_IDS)).sum())
+    if invalid_team_rows:
+        raise ValueError(
+            f"{dataset_name} has invalid teamid rows: {invalid_team_rows}."
+        )
+
+    teams_per_match = frame.groupby("matchid")["teamid"].nunique(dropna=False)
+    invalid_team_count = int((teams_per_match != EXPECTED_TEAM_ROWS_PER_MATCH).sum())
+    if invalid_team_count:
+        raise ValueError(
+            f"{dataset_name} matches without exactly 2 teams: {invalid_team_count}."
+        )
+
+    wins_per_match = (
+        pd.to_numeric(frame["win"], errors="coerce")
+        .fillna(0)
+        .groupby(frame["matchid"])
+        .sum(min_count=1)
+    )
+    invalid_winner_matches = int((wins_per_match != 1).sum())
+    if invalid_winner_matches:
+        raise ValueError(
+            f"{dataset_name} matches violating winner rule (sum(win)==1): "
+            f"{invalid_winner_matches}."
+        )
+
+
+def _team_constraint_report(frame: pd.DataFrame) -> dict[str, Any]:
+    teams_per_match = frame.groupby("matchid")["teamid"].nunique(dropna=False)
+    wins_per_match = (
+        pd.to_numeric(frame["win"], errors="coerce")
+        .fillna(0)
+        .groupby(frame["matchid"])
+        .sum(min_count=1)
+    )
+    return {
+        "rows": int(len(frame)),
+        "unique_matches": int(teams_per_match.index.nunique()),
+        "duplicate_match_team_rows": int(
+            frame.duplicated(subset=["matchid", "teamid"]).sum()
+        ),
+        "invalid_teamid_rows": int(
+            (~pd.to_numeric(frame["teamid"], errors="coerce").isin(TEAM_IDS)).sum()
+        ),
+        "invalid_match_team_count": int(
+            (teams_per_match != EXPECTED_TEAM_ROWS_PER_MATCH).sum()
+        ),
+        "invalid_winner_matches": int((wins_per_match != 1).sum()),
+    }
 
 
 def _export_expectation_suite(context: Any, suite_name: str, output_path: Path) -> None:
@@ -185,14 +266,20 @@ def run_data_quality(
         merged_df,
         min_duration_seconds=config.min_curated_duration_seconds,
     )
+    _assert_team_constraints(merged_df, dataset_name="merged dataframe")
 
-    logger.info("Loading processed splits")
-    processed_train_path = config.processed_dir / "train.csv.gz"
-    if not processed_train_path.exists():
+    logger.info("Loading processed feature split")
+    processed_features_path = config.processed_dir / "train_features.csv.gz"
+    if not processed_features_path.exists():
         raise FileNotFoundError(
-            "Missing processed split: data/processed/train.csv.gz. Run scripts/run_pipeline.py first."
+            "Missing engineered split: data/processed/train_features.csv.gz. "
+            "Run scripts/run_pipeline.py first."
         )
-    processed_train_df = pd.read_csv(processed_train_path, nrows=nrows)
+    processed_features_df = pd.read_csv(processed_features_path, nrows=nrows)
+    _assert_team_constraints(
+        processed_features_df,
+        dataset_name="processed train feature split",
+    )
 
     logger.info("Initializing Great Expectations file context")
     context = gx.get_context(mode="file", project_root_dir="great_expectations")
@@ -261,12 +348,12 @@ def run_data_quality(
     processed_validator = _prepare_validator(
         context.get_validator(
             batch_request=processed_bd.build_batch_request(
-                batch_parameters={"dataframe": processed_train_df}
+                batch_parameters={"dataframe": processed_features_df}
             ),
             expectation_suite=processed_suite,
         )
     )
-    _add_processed_expectations(processed_validator, processed_train_df)
+    _add_processed_expectations(processed_validator, processed_features_df)
     context.suites.add_or_update(processed_validator.expectation_suite)
 
     # Merged dataset contract extends the processed suite checks to ensure merged integrity.
@@ -285,8 +372,12 @@ def run_data_quality(
     merged_validator.expect_column_to_exist("teamid")
     merged_validator.expect_column_values_to_not_be_null("matchid")
     merged_validator.expect_column_values_to_not_be_null("teamid")
-    merged_validator.expect_column_values_to_be_in_set("teamid", [100, 200])
+    merged_validator.expect_column_values_to_be_in_set("teamid", TEAM_IDS)
     merged_validator.expect_column_values_to_be_in_set("win", [0, 1])
+    merged_validator.expect_column_values_to_be_in_set("is_blue_side", [0, 1])
+    merged_validator.expect_compound_columns_to_be_unique(
+        column_list=["matchid", "teamid"]
+    )
     merged_validator.expect_column_values_to_be_between(
         "duration", min_value=config.min_curated_duration_seconds, max_value=7200
     )
@@ -304,6 +395,11 @@ def run_data_quality(
         context,
         "processed_features_suite",
         expectations_dir / "processed_features_suite.json",
+    )
+    _export_expectation_suite(
+        context,
+        "merged_match_level_suite",
+        expectations_dir / "merged_match_level_suite.json",
     )
 
     logger.info("Running initial checkpoints")
@@ -330,7 +426,7 @@ def run_data_quality(
             validation_name="processed_features_validation",
             batch_definition=processed_bd,
             suite_name="processed_features_suite",
-            dataframe=processed_train_df,
+            dataframe=processed_features_df,
         ),
         _run_checkpoint(
             context,
@@ -350,7 +446,14 @@ def run_data_quality(
             "raw_matches": int(len(tables["matches"])),
             "raw_stats": int(len(tables["stats"])),
             "merged": int(len(merged_df)),
-            "processed_train": int(len(processed_train_df)),
+            "processed_train_features": int(len(processed_features_df)),
+        },
+        "team_level_constraints": {
+            "merged": _team_constraint_report(merged_df),
+            "processed_train_features": _team_constraint_report(processed_features_df),
+            "expected_rows_per_match": EXPECTED_TEAM_ROWS_PER_MATCH,
+            "expected_team_ids": TEAM_IDS,
+            "winner_rule": "sum(win)==1 per match",
         },
         "raw_monitoring": {
             "short_duration_threshold_seconds": config.min_curated_duration_seconds,

@@ -6,8 +6,8 @@ from typing import Any, Mapping
 
 from .constants import (
     CONFIGS_DIR,
-    DEFAULT_MIN_CURATED_DURATION_SECONDS,
     DATA_DIR,
+    DEFAULT_MIN_CURATED_DURATION_SECONDS,
     DEFAULT_RANDOM_STATE,
     DEFAULT_TEST_SIZE,
     DEFAULT_VAL_SIZE,
