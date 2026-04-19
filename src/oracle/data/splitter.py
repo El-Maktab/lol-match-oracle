@@ -55,7 +55,7 @@ def split_train_val_test(
         if group_col not in df.columns:
             raise ValueError(f"Group column '{group_col}' was not found in dataframe")
 
-        x = df.drop(columns=[target_col, group_col])
+        x = df.drop(columns=[target_col])
         groups = df[group_col]
         unique_groups = pd.Index(groups.dropna().unique())
 
@@ -75,6 +75,13 @@ def split_train_val_test(
         train_mask = groups.isin(train_groups)
         val_mask = groups.isin(val_groups)
         test_mask = groups.isin(test_groups)
+
+        if set(train_groups).intersection(set(val_groups)):
+            raise ValueError("Train and validation groups overlap.")
+        if set(train_groups).intersection(set(test_groups)):
+            raise ValueError("Train and test groups overlap.")
+        if set(val_groups).intersection(set(test_groups)):
+            raise ValueError("Validation and test groups overlap.")
 
         x_train = x.loc[train_mask]
         x_val = x.loc[val_mask]
