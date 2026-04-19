@@ -18,7 +18,12 @@ from oracle.data import (
     merge_match_level_dataset,
     split_train_val_test,
 )
+from oracle.features import build_feature_datasets
 from oracle.utils import get_logger, load_data_config
+from oracle.utils.constants import (
+    EXPECTED_TEAM_ROWS_PER_MATCH,
+    TEAM_IDS,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,6 +75,42 @@ def _dump_json(path: Path, payload: dict[str, Any]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
         handle.write("\n")
+
+
+def _team_integrity_summary(frame: pd.DataFrame, *, target_col: str) -> dict[str, Any]:
+    if frame.empty:
+        return {
+            "team_rows_per_match_expected": EXPECTED_TEAM_ROWS_PER_MATCH,
+            "duplicate_match_team_rows": 0,
+            "invalid_teamid_rows": 0,
+            "invalid_match_team_count": 0,
+            "invalid_winner_matches": 0,
+            "unique_matches": 0,
+        }
+
+    duplicate_keys = int(frame.duplicated(subset=["matchid", "teamid"]).sum())
+    invalid_team_rows = int(
+        (~pd.to_numeric(frame["teamid"], errors="coerce").isin(TEAM_IDS)).sum()
+    )
+
+    teams_per_match = frame.groupby("matchid")["teamid"].nunique(dropna=False)
+    wins_per_match = (
+        pd.to_numeric(frame[target_col], errors="coerce")
+        .fillna(0)
+        .groupby(frame["matchid"])
+        .sum(min_count=1)
+    )
+
+    return {
+        "team_rows_per_match_expected": EXPECTED_TEAM_ROWS_PER_MATCH,
+        "duplicate_match_team_rows": duplicate_keys,
+        "invalid_teamid_rows": invalid_team_rows,
+        "invalid_match_team_count": int(
+            (teams_per_match != EXPECTED_TEAM_ROWS_PER_MATCH).sum()
+        ),
+        "invalid_winner_matches": int((wins_per_match != 1).sum()),
+        "unique_matches": int(teams_per_match.index.nunique()),
+    }
 
 
 def build_pipeline(
@@ -143,6 +184,16 @@ def build_pipeline(
     _write_csv_gz(val_frame, val_path)
     _write_csv_gz(test_frame, test_path)
 
+    logger.info("Building team-level feature datasets")
+    # NOTE: We call the shared feature module here so notebook and CLI paths stay consistent.
+    feature_summary = build_feature_datasets(
+        train_frame,
+        val_frame,
+        test_frame,
+        processed_dir=processed_dir,
+        target_col=config.target_column,
+    )
+
     summary = {
         "config": {
             "data_dir": str(config.data_dir),
@@ -169,6 +220,23 @@ def build_pipeline(
             "train": _frame_summary(train_frame, target_col=config.target_column),
             "val": _frame_summary(val_frame, target_col=config.target_column),
             "test": _frame_summary(test_frame, target_col=config.target_column),
+        },
+        "team_level_integrity": {
+            "merged": _team_integrity_summary(cleaned, target_col=config.target_column),
+            "train": _team_integrity_summary(
+                train_frame, target_col=config.target_column
+            ),
+            "val": _team_integrity_summary(val_frame, target_col=config.target_column),
+            "test": _team_integrity_summary(
+                test_frame, target_col=config.target_column
+            ),
+        },
+        "feature_engineering": {
+            "summary_file": str(processed_dir / "feature_engineering_summary.json"),
+            "rows": feature_summary["rows"],
+            "feature_count": feature_summary["feature_counts"]["final_selected"],
+            "feature_counts": feature_summary["feature_counts"],
+            "outputs": feature_summary["outputs"],
         },
         "output_files": {
             "merged": str(merged_path),
