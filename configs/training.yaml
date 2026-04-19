@@ -1,0 +1,11 @@
+experiment_name: 01-baselines
+run_name: logistic-regression-baseline
+
+processed_dir: data/processed
+models_dir: models
+mlruns_dir: mlruns
+tracking_uri: sqlite:///mlflow.db
+
+target_column: win
+id_columns: matchid,teamid
+random_state: 42

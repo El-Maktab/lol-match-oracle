@@ -3,6 +3,10 @@
 ################# CUSTOM #################
 data/
 !src/oracle/data/
+/mlruns/
+/mlartifacts/
+/models/
+/mlflow.db*
 .env
 .env.*
 !.env.example

@@ -1,0 +1,29 @@
+default_model_name: logistic_regression
+
+logistic_regression_c: 1.0
+logistic_regression_penalty: l2
+logistic_regression_solver: lbfgs
+logistic_regression_max_iter: 1000
+logistic_regression_class_weight: balanced
+
+perceptron_max_iter: 1000
+perceptron_eta0: 1.0
+perceptron_penalty: none
+
+linear_regression_classifier_fit_intercept: true
+
+random_forest_n_estimators: 400
+random_forest_max_depth: 12
+random_forest_min_samples_split: 2
+
+xgboost_n_estimators: 500
+xgboost_learning_rate: 0.05
+xgboost_max_depth: 6
+
+lightgbm_n_estimators: 500
+lightgbm_learning_rate: 0.05
+lightgbm_num_leaves: 31
+
+svm_linear_c: 1.0
+svm_rbf_c: 1.0
+svm_rbf_gamma: scale
