@@ -6,6 +6,7 @@ data/
 /mlruns/
 /mlartifacts/
 /models/
+/reports/
 /mlflow.db*
 .env
 .env.*
