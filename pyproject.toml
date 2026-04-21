@@ -15,6 +15,7 @@ dependencies = [
     "mlflow>=2.22.0",
     "missingno>=0.5.2",
     "nbformat>=5.10.4",
+    "optuna>=4.5.0",
     "pandas>=2.2.3,<3.0.0",
     "pip>=26.0.1",
     "plotly>=6.6.0",
@@ -22,6 +23,7 @@ dependencies = [
     "scikit-learn>=1.7.2",
     "seaborn>=0.13.2",
     "statsmodels>=0.14.6",
+    "tqdm>=4.67.1",
 ]
 
 [dependency-groups]
