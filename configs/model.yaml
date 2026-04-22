@@ -12,18 +12,98 @@ perceptron_penalty: none
 
 linear_regression_classifier_fit_intercept: true
 
-random_forest_n_estimators: 400
+random_forest_n_estimators: 200
 random_forest_max_depth: 12
 random_forest_min_samples_split: 2
+random_forest_min_samples_leaf: 1
+random_forest_class_weight: balanced_subsample
+random_forest_n_jobs: -1
 
-xgboost_n_estimators: 500
+xgboost_n_estimators: 300
 xgboost_learning_rate: 0.05
 xgboost_max_depth: 6
+xgboost_subsample: 0.8
+xgboost_colsample_bytree: 0.8
+xgboost_reg_alpha: 0.0
+xgboost_reg_lambda: 1.0
+xgboost_min_child_weight: 1.0
+xgboost_gamma: 0.0
+xgboost_early_stopping_rounds: 30
+xgboost_eval_metric: logloss
+xgboost_n_jobs: -1
 
-lightgbm_n_estimators: 500
+lightgbm_n_estimators: 300
 lightgbm_learning_rate: 0.05
 lightgbm_num_leaves: 31
+lightgbm_subsample: 0.8
+lightgbm_colsample_bytree: 0.8
+lightgbm_reg_alpha: 0.0
+lightgbm_reg_lambda: 0.0
+lightgbm_min_child_samples: 20
+lightgbm_class_weight: none
+lightgbm_early_stopping_rounds: 30
+lightgbm_n_jobs: -1
 
 svm_linear_c: 1.0
+svm_linear_class_weight: none
+svm_linear_probability: false
+svm_linear_max_iter: 3000
+svm_linear_max_train_samples: 60000
 svm_rbf_c: 1.0
 svm_rbf_gamma: scale
+svm_rbf_class_weight: none
+svm_rbf_probability: false
+svm_rbf_max_iter: 3000
+
+optuna_models: random_forest,svm_rbf,xgboost,lightgbm
+optuna_storage_url: sqlite:///optuna_studies.db
+optuna_experiment_name: 03-optuna-tuning
+optuna_study_name_prefix: lfd-optuna
+optuna_run_name_prefix: optuna-parent
+optuna_metric_name: val_roc_auc
+optuna_direction: maximize
+optuna_n_trials: 30
+optuna_timeout_seconds: 0
+optuna_sampler_seed: 42
+optuna_sampler_n_startup_trials: 10
+optuna_pruner_n_startup_trials: 5
+optuna_pruner_n_warmup_steps: 0
+optuna_pruner_interval_steps: 1
+optuna_output_dir: reports/optimization
+optuna_resume_if_exists: true
+
+optuna_random_forest_n_estimators_low: 100
+optuna_random_forest_n_estimators_high: 800
+optuna_random_forest_n_estimators_step: 50
+optuna_random_forest_max_depth_low: 4
+optuna_random_forest_max_depth_high: 20
+optuna_random_forest_min_samples_split_low: 2
+optuna_random_forest_min_samples_split_high: 10
+optuna_random_forest_min_samples_leaf_low: 1
+optuna_random_forest_min_samples_leaf_high: 5
+
+optuna_svm_rbf_c_low: 0.001
+optuna_svm_rbf_c_high: 100.0
+optuna_svm_rbf_c_log: true
+optuna_svm_rbf_gamma_low: 0.0001
+optuna_svm_rbf_gamma_high: 10.0
+optuna_svm_rbf_gamma_log: true
+
+optuna_xgboost_learning_rate_low: 0.001
+optuna_xgboost_learning_rate_high: 0.3
+optuna_xgboost_learning_rate_log: true
+optuna_xgboost_max_depth_low: 3
+optuna_xgboost_max_depth_high: 12
+optuna_xgboost_n_estimators_low: 200
+optuna_xgboost_n_estimators_high: 1200
+optuna_xgboost_n_estimators_step: 50
+
+optuna_lightgbm_learning_rate_low: 0.001
+optuna_lightgbm_learning_rate_high: 0.3
+optuna_lightgbm_learning_rate_log: true
+optuna_lightgbm_num_leaves_low: 15
+optuna_lightgbm_num_leaves_high: 127
+optuna_lightgbm_n_estimators_low: 200
+optuna_lightgbm_n_estimators_high: 1200
+optuna_lightgbm_n_estimators_step: 50
+svm_rbf_max_train_samples: 30000
