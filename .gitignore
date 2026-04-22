@@ -7,7 +7,6 @@ data/
 /mlartifacts/
 /models/
 /reports/
-/mlflow.db*
 .env
 .env.*
 !.env.example
