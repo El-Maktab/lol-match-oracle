@@ -17,6 +17,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
+from tqdm.auto import tqdm
 
 from ..utils import get_logger
 from ..utils.constants import (
@@ -26,6 +27,7 @@ from ..utils.constants import (
     PROCESSED_DATA_DIR,
     TARGET_COLUMN,
 )
+from ..utils.leakage import split_leaky_feature_columns
 from .baseline import build_baseline_model
 from .svm_model import build_svm_model
 from .tree_models import build_tree_model
@@ -36,12 +38,29 @@ ALLOWED_EXPERIMENT_NAMES = (
     "05-final-champion",
 )
 
+ADVANCED_MODEL_NAMES = {
+    "random_forest",
+    "xgboost",
+    "lightgbm",
+    "svm_linear",
+    "svm_rbf",
+}
+
 
 def _resolve_path(path: str | Path, *, base_dir: Path) -> Path:
     candidate = Path(path)
     if candidate.is_absolute():
         return candidate
     return (base_dir / candidate).resolve()
+
+
+def _resolve_sqlite_uri(uri: str | None, *, base_dir: Path) -> str | None:
+    if not uri:
+        return uri
+    if uri.startswith("sqlite:///") and not uri.startswith("sqlite:////"):
+        db_path = uri[len("sqlite:///") :]
+        return f"sqlite:///{_resolve_path(db_path, base_dir=base_dir)}"
+    return uri
 
 
 def _parse_id_columns(value: Any) -> tuple[str, ...]:
@@ -145,7 +164,10 @@ class TrainingConfig:
                 mapping.get("mlruns_dir", MLRUNS_DIR),
                 base_dir=base_dir,
             ),
-            tracking_uri=(str(mapping.get("tracking_uri", "")).strip() or None),
+            tracking_uri=_resolve_sqlite_uri(
+                str(mapping.get("tracking_uri", "")).strip() or None,
+                base_dir=base_dir,
+            ),
             target_column=str(mapping.get("target_column", TARGET_COLUMN)),
             id_columns=_parse_id_columns(mapping.get("id_columns", "matchid,teamid")),
             random_state=int(mapping.get("random_state", DEFAULT_RANDOM_STATE)),
@@ -223,9 +245,13 @@ def _extract_xy(
             "Feature split is missing required columns: " + ", ".join(sorted(missing))
         )
 
-    feature_columns = [
+    candidate_feature_columns = [
         column for column in frame.columns if column not in set(required)
     ]
+    feature_columns, _ = split_leaky_feature_columns(
+        candidate_feature_columns,
+        target_col=target_column,
+    )
     if not feature_columns:
         raise ValueError("No feature columns were found in processed split.")
 
@@ -253,6 +279,35 @@ def _predict_scores(model: Any, x: pd.DataFrame) -> np.ndarray | None:
     return None
 
 
+def _fit_with_optional_validation(
+    model: Any,
+    x_train: pd.DataFrame,
+    y_train: pd.Series,
+    x_val: pd.DataFrame,
+    y_val: pd.Series,
+    *,
+    show_progress: bool = False,
+    progress_desc: str | None = None,
+) -> None:
+    """Fit models while allowing wrappers to consume validation data."""
+
+    try:
+        # NOTE: Advanced wrappers can use validation splits for early stopping.
+        model.fit(
+            x_train,
+            y_train,
+            x_val=x_val,
+            y_val=y_val,
+            show_progress=show_progress,
+            progress_desc=progress_desc,
+        )
+    except TypeError:
+        try:
+            model.fit(x_train, y_train, x_val=x_val, y_val=y_val)
+        except TypeError:
+            model.fit(x_train, y_train)
+
+
 def _compute_classification_metrics(
     y_true: pd.Series,
     y_pred: np.ndarray,
@@ -271,6 +326,33 @@ def _compute_classification_metrics(
         metrics[f"{prefix}_roc_auc"] = float(roc_auc_score(y_true, y_score))
 
     return metrics
+
+
+def _extract_feature_importances(
+    model: Any,
+    *,
+    feature_columns: list[str],
+) -> pd.DataFrame | None:
+    """Build a normalized feature-importance table when the model supports it."""
+
+    raw_importances: Any | None = None
+    if hasattr(model, "feature_importances_"):
+        raw_importances = model.feature_importances_
+
+    if raw_importances is None:
+        return None
+
+    importances = np.asarray(raw_importances, dtype=float).reshape(-1)
+    if importances.shape[0] != len(feature_columns):
+        return None
+
+    frame = pd.DataFrame(
+        {
+            "feature": feature_columns,
+            "importance": importances,
+        }
+    )
+    return frame.sort_values("importance", ascending=False, ignore_index=True)
 
 
 class Trainer:
@@ -298,12 +380,36 @@ class Trainer:
         self.logger = get_logger(__name__)
         self.model: Any | None = None
 
+    def _persist_feature_importance(
+        self,
+        output_dir: Path,
+        *,
+        feature_columns: list[str],
+    ) -> Path | None:
+        """Persist feature-importance artifact for tree-style models."""
+
+        if self.model is None:
+            return None
+
+        importance_frame = _extract_feature_importances(
+            self.model,
+            feature_columns=feature_columns,
+        )
+        if importance_frame is None:
+            return None
+
+        output_path = output_dir / "feature_importance.csv"
+        importance_frame.to_csv(output_path, index=False)
+        return output_path
+
     def fit(
         self,
         x_train: pd.DataFrame,
         y_train: pd.Series,
         x_val: pd.DataFrame,
         y_val: pd.Series,
+        *,
+        show_progress: bool = False,
     ) -> dict[str, float]:
         """Fit model on train split and evaluate on train/val splits."""
 
@@ -314,7 +420,17 @@ class Trainer:
 
         # NOTE: Fit is isolated to train split to avoid validation/test leakage.
         started_at = time.perf_counter()
-        self.model.fit(x_train, y_train)
+        _fit_with_optional_validation(
+            self.model,
+            x_train,
+            y_train,
+            x_val,
+            y_val,
+            show_progress=(
+                show_progress and self.model_config.model_name in ADVANCED_MODEL_NAMES
+            ),
+            progress_desc=f"{self.model_config.model_name} fit",
+        )
         fit_seconds = time.perf_counter() - started_at
 
         train_pred = self.model.predict(x_train)
@@ -407,106 +523,147 @@ class Trainer:
         train_frame: pd.DataFrame,
         val_frame: pd.DataFrame,
         test_frame: pd.DataFrame,
+        *,
+        show_progress: bool = False,
     ) -> TrainingRunResult:
         """Run end-to-end fit/evaluate/persist/log pipeline with MLflow."""
+        progress_desc = f"Training {self.model_config.model_name}"
+        with tqdm(
+            total=6,
+            desc=progress_desc,
+            unit="step",
+            disable=not show_progress,
+        ) as progress:
+            x_train, y_train, feature_columns = _extract_xy(
+                train_frame,
+                target_column=self.training_config.target_column,
+                id_columns=self.training_config.id_columns,
+            )
+            x_val, y_val, _ = _extract_xy(
+                val_frame,
+                target_column=self.training_config.target_column,
+                id_columns=self.training_config.id_columns,
+            )
+            x_test, y_test, _ = _extract_xy(
+                test_frame,
+                target_column=self.training_config.target_column,
+                id_columns=self.training_config.id_columns,
+            )
+            progress.update(1)
 
-        x_train, y_train, feature_columns = _extract_xy(
-            train_frame,
-            target_column=self.training_config.target_column,
-            id_columns=self.training_config.id_columns,
-        )
-        x_val, y_val, _ = _extract_xy(
-            val_frame,
-            target_column=self.training_config.target_column,
-            id_columns=self.training_config.id_columns,
-        )
-        x_test, y_test, _ = _extract_xy(
-            test_frame,
-            target_column=self.training_config.target_column,
-            id_columns=self.training_config.id_columns,
-        )
+            tracking_uri = self.training_config.tracking_uri
+            if tracking_uri is None:
+                self.training_config.mlruns_dir.mkdir(parents=True, exist_ok=True)
+                tracking_uri = f"file://{self.training_config.mlruns_dir.resolve()}"
+            mlflow.set_tracking_uri(tracking_uri)
+            mlflow.set_experiment(self.training_config.experiment_name)
+            progress.update(1)
 
-        tracking_uri = self.training_config.tracking_uri
-        if tracking_uri is None:
-            self.training_config.mlruns_dir.mkdir(parents=True, exist_ok=True)
-            tracking_uri = f"file://{self.training_config.mlruns_dir.resolve()}"
-        mlflow.set_tracking_uri(tracking_uri)
-        mlflow.set_experiment(self.training_config.experiment_name)
-
-        self.logger.info(
-            "Starting training run '%s' in experiment '%s'",
-            self.training_config.run_name,
-            self.training_config.experiment_name,
-        )
-
-        with mlflow.start_run(run_name=self.training_config.run_name) as run:
-            mlflow.set_tags(
-                {
-                    "model_name": self.model_config.model_name,
-                    "project_scope": "post-game-team-level",
-                    "lfd_generalization": "train-vs-val-vs-test",
-                    "lfd_complexity_control": "config-driven-hypothesis-class",
-                }
+            self.logger.info(
+                "Starting training run '%s' in experiment '%s'",
+                self.training_config.run_name,
+                self.training_config.experiment_name,
             )
 
-            mlflow.log_params(
-                {
-                    "model_name": self.model_config.model_name,
-                    "random_state": self.training_config.random_state,
-                    "target_column": self.training_config.target_column,
-                    "id_columns": ",".join(self.training_config.id_columns),
-                    "feature_count": len(feature_columns),
-                }
-            )
-            if self.model_config.model_params:
-                mlflow.log_params(
+            with mlflow.start_run(run_name=self.training_config.run_name) as run:
+                mlflow.set_tags(
                     {
-                        f"model_param_{key}": value
-                        for key, value in self.model_config.model_params.items()
+                        "model_name": self.model_config.model_name,
+                        "project_scope": "post-game-team-level",
+                        "lfd_generalization": "train-vs-val-vs-test",
+                        "lfd_complexity_control": "config-driven-hypothesis-class",
                     }
                 )
 
-            fit_metrics = self.fit(x_train, y_train, x_val, y_val)
-            test_metrics = self.evaluate(x_test, y_test)
-            metrics = {**fit_metrics, **test_metrics}
-            mlflow.log_metrics(metrics)
+                mlflow.log_params(
+                    {
+                        "model_name": self.model_config.model_name,
+                        "random_state": self.training_config.random_state,
+                        "target_column": self.training_config.target_column,
+                        "id_columns": ",".join(self.training_config.id_columns),
+                        "feature_count": len(feature_columns),
+                    }
+                )
+                if self.model_config.model_params:
+                    mlflow.log_params(
+                        {
+                            f"model_param_{key}": value
+                            for key, value in self.model_config.model_params.items()
+                        }
+                    )
+                progress.update(1)
 
-            model_path = self.persist(run.info.run_id, feature_columns=feature_columns)
-            mlflow.log_artifact(str(model_path), artifact_path="model")
+                fit_metrics = self.fit(
+                    x_train,
+                    y_train,
+                    x_val,
+                    y_val,
+                    show_progress=show_progress,
+                )
+                test_metrics = self.evaluate(x_test, y_test)
+                metrics = {**fit_metrics, **test_metrics}
+                mlflow.log_metrics(metrics)
+                progress.update(1)
 
-            metrics_path = model_path.parent / "metrics.json"
-            with metrics_path.open("w", encoding="utf-8") as handle:
-                json.dump(metrics, handle, indent=2, sort_keys=True)
-                handle.write("\n")
+                model_path = self.persist(
+                    run.info.run_id,
+                    feature_columns=feature_columns,
+                )
+                mlflow.log_artifact(str(model_path), artifact_path="model")
 
-            features_path = model_path.parent / "features.json"
-            with features_path.open("w", encoding="utf-8") as handle:
-                json.dump({"feature_columns": feature_columns}, handle, indent=2)
-                handle.write("\n")
+                feature_importance_path = self._persist_feature_importance(
+                    model_path.parent,
+                    feature_columns=feature_columns,
+                )
+                if feature_importance_path is not None:
+                    mlflow.log_artifact(
+                        str(feature_importance_path), artifact_path="reports"
+                    )
+                progress.update(1)
 
-            mlflow.log_artifact(str(metrics_path), artifact_path="reports")
-            mlflow.log_artifact(str(features_path), artifact_path="reports")
+                metrics_path = model_path.parent / "metrics.json"
+                with metrics_path.open("w", encoding="utf-8") as handle:
+                    json.dump(metrics, handle, indent=2, sort_keys=True)
+                    handle.write("\n")
 
-            self.logger.info(
-                "Completed training run '%s' (run_id=%s)",
-                self.training_config.run_name,
-                run.info.run_id,
-            )
+                features_path = model_path.parent / "features.json"
+                with features_path.open("w", encoding="utf-8") as handle:
+                    json.dump({"feature_columns": feature_columns}, handle, indent=2)
+                    handle.write("\n")
 
-            return TrainingRunResult(
-                experiment_name=self.training_config.experiment_name,
-                run_name=self.training_config.run_name,
-                run_id=run.info.run_id,
-                model_name=self.model_config.model_name,
-                model_path=model_path,
-                metrics=metrics,
-                feature_columns=feature_columns,
-            )
+                mlflow.log_artifact(str(metrics_path), artifact_path="reports")
+                mlflow.log_artifact(str(features_path), artifact_path="reports")
 
-    def train_from_processed_features(self) -> TrainingRunResult:
+                self.logger.info(
+                    "Completed training run '%s' (run_id=%s)",
+                    self.training_config.run_name,
+                    run.info.run_id,
+                )
+                progress.update(1)
+
+                return TrainingRunResult(
+                    experiment_name=self.training_config.experiment_name,
+                    run_name=self.training_config.run_name,
+                    run_id=run.info.run_id,
+                    model_name=self.model_config.model_name,
+                    model_path=model_path,
+                    metrics=metrics,
+                    feature_columns=feature_columns,
+                )
+
+    def train_from_processed_features(
+        self,
+        *,
+        show_progress: bool = False,
+    ) -> TrainingRunResult:
         """Load processed splits and execute one full training run."""
 
         train_frame, val_frame, test_frame = load_feature_splits(
             self.training_config.processed_dir
         )
-        return self.train(train_frame, val_frame, test_frame)
+        return self.train(
+            train_frame,
+            val_frame,
+            test_frame,
+            show_progress=show_progress,
+        )
