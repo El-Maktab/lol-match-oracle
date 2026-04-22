@@ -72,7 +72,7 @@ def main() -> None:
         model_config=model_config,
     )
 
-    result = trainer.train_from_processed_features()
+    result = trainer.train_from_processed_features(show_progress=True)
 
     print(
         "Training complete: "

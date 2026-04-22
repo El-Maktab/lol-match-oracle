@@ -11,6 +11,7 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pandas as pd
+from tqdm.auto import tqdm
 
 from oracle.data import (
     clean_match_dataset,
@@ -119,135 +120,147 @@ def build_pipeline(
     logger = get_logger(__name__)
     config = load_data_config(config_path)
 
-    logger.info("Loading raw tables from %s", config.raw_dir)
-    tables = load_raw_tables(
-        config.raw_dir,
-        include_champs=config.include_champs,
-        nrows=nrows,
-    )
+    with tqdm(total=7, desc="Pipeline", unit="step") as progress:
+        logger.info("Loading raw tables from %s", config.raw_dir)
+        tables = load_raw_tables(
+            config.raw_dir,
+            include_champs=config.include_champs,
+            nrows=nrows,
+        )
+        progress.update(1)
 
-    logger.info("Merging match-level dataset")
-    merged = merge_match_level_dataset(
-        tables["matches"],
-        tables["participants"],
-        tables["stats"],
-        tables["teamstats"],
-    )
+        logger.info("Merging match-level dataset")
+        merged = merge_match_level_dataset(
+            tables["matches"],
+            tables["participants"],
+            tables["stats"],
+            tables["teamstats"],
+        )
+        progress.update(1)
 
-    logger.info("Cleaning merged dataset")
-    cleaned = clean_match_dataset(
-        merged,
-        min_duration_seconds=config.min_curated_duration_seconds,
-    )
+        logger.info("Cleaning merged dataset")
+        cleaned = clean_match_dataset(
+            merged,
+            min_duration_seconds=config.min_curated_duration_seconds,
+        )
+        progress.update(1)
 
-    if config.target_column not in cleaned.columns:
-        raise ValueError(
-            f"Target column '{config.target_column}' not found after cleaning."
+        if config.target_column not in cleaned.columns:
+            raise ValueError(
+                f"Target column '{config.target_column}' not found after cleaning."
+            )
+
+        logger.info("Splitting dataset into train/val/test sets")
+        splits = split_train_val_test(
+            cleaned,
+            target_col=config.target_column,
+            group_col=config.group_column,
+            test_size=config.test_size,
+            val_size=config.val_size,
+            random_state=config.random_state,
+        )
+        progress.update(1)
+
+        interim_dir = config.interim_dir
+        processed_dir = config.processed_dir
+        interim_dir.mkdir(parents=True, exist_ok=True)
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        merged_path = interim_dir / "match_level_dataset.csv.gz"
+        train_path = processed_dir / "train.csv.gz"
+        val_path = processed_dir / "val.csv.gz"
+        test_path = processed_dir / "test.csv.gz"
+        summary_path = processed_dir / "pipeline_summary.json"
+
+        logger.info("Writing interim dataset to %s", merged_path)
+        _write_csv_gz(cleaned, merged_path)
+
+        train_frame = pd.concat(
+            [splits.x_train, splits.y_train.rename(config.target_column)], axis=1
+        )
+        val_frame = pd.concat(
+            [splits.x_val, splits.y_val.rename(config.target_column)], axis=1
+        )
+        test_frame = pd.concat(
+            [splits.x_test, splits.y_test.rename(config.target_column)], axis=1
         )
 
-    logger.info("Splitting dataset into train/val/test sets")
-    splits = split_train_val_test(
-        cleaned,
-        target_col=config.target_column,
-        group_col=config.group_column,
-        test_size=config.test_size,
-        val_size=config.val_size,
-        random_state=config.random_state,
-    )
+        logger.info("Writing processed splits")
+        _write_csv_gz(train_frame, train_path)
+        _write_csv_gz(val_frame, val_path)
+        _write_csv_gz(test_frame, test_path)
+        progress.update(1)
 
-    interim_dir = config.interim_dir
-    processed_dir = config.processed_dir
-    interim_dir.mkdir(parents=True, exist_ok=True)
-    processed_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Building team-level feature datasets")
+        # NOTE: We call the shared feature module here so notebook and CLI paths stay consistent.
+        feature_summary = build_feature_datasets(
+            train_frame,
+            val_frame,
+            test_frame,
+            processed_dir=processed_dir,
+            target_col=config.target_column,
+        )
+        progress.update(1)
 
-    merged_path = interim_dir / "match_level_dataset.csv.gz"
-    train_path = processed_dir / "train.csv.gz"
-    val_path = processed_dir / "val.csv.gz"
-    test_path = processed_dir / "test.csv.gz"
-    summary_path = processed_dir / "pipeline_summary.json"
+        summary = {
+            "config": {
+                "data_dir": str(config.data_dir),
+                "raw_dir": str(config.raw_dir),
+                "interim_dir": str(config.interim_dir),
+                "processed_dir": str(config.processed_dir),
+                "target_column": config.target_column,
+                "group_column": config.group_column,
+                "test_size": config.test_size,
+                "val_size": config.val_size,
+                "random_state": config.random_state,
+                "include_champs": config.include_champs,
+                "min_curated_duration_seconds": config.min_curated_duration_seconds,
+            },
+            "raw_tables": {
+                name: {
+                    "rows": int(len(frame)),
+                    "columns": int(len(frame.columns)),
+                }
+                for name, frame in tables.items()
+            },
+            "merged": _frame_summary(cleaned, target_col=config.target_column),
+            "splits": {
+                "train": _frame_summary(train_frame, target_col=config.target_column),
+                "val": _frame_summary(val_frame, target_col=config.target_column),
+                "test": _frame_summary(test_frame, target_col=config.target_column),
+            },
+            "team_level_integrity": {
+                "merged": _team_integrity_summary(
+                    cleaned, target_col=config.target_column
+                ),
+                "train": _team_integrity_summary(
+                    train_frame, target_col=config.target_column
+                ),
+                "val": _team_integrity_summary(
+                    val_frame, target_col=config.target_column
+                ),
+                "test": _team_integrity_summary(
+                    test_frame, target_col=config.target_column
+                ),
+            },
+            "feature_engineering": {
+                "summary_file": str(processed_dir / "feature_engineering_summary.json"),
+                "rows": feature_summary["rows"],
+                "feature_count": feature_summary["feature_counts"]["final_selected"],
+                "feature_counts": feature_summary["feature_counts"],
+                "outputs": feature_summary["outputs"],
+            },
+            "output_files": {
+                "merged": str(merged_path),
+                "train": str(train_path),
+                "val": str(val_path),
+                "test": str(test_path),
+            },
+        }
 
-    logger.info("Writing interim dataset to %s", merged_path)
-    _write_csv_gz(cleaned, merged_path)
-
-    train_frame = pd.concat(
-        [splits.x_train, splits.y_train.rename(config.target_column)], axis=1
-    )
-    val_frame = pd.concat(
-        [splits.x_val, splits.y_val.rename(config.target_column)], axis=1
-    )
-    test_frame = pd.concat(
-        [splits.x_test, splits.y_test.rename(config.target_column)], axis=1
-    )
-
-    logger.info("Writing processed splits")
-    _write_csv_gz(train_frame, train_path)
-    _write_csv_gz(val_frame, val_path)
-    _write_csv_gz(test_frame, test_path)
-
-    logger.info("Building team-level feature datasets")
-    # NOTE: We call the shared feature module here so notebook and CLI paths stay consistent.
-    feature_summary = build_feature_datasets(
-        train_frame,
-        val_frame,
-        test_frame,
-        processed_dir=processed_dir,
-        target_col=config.target_column,
-    )
-
-    summary = {
-        "config": {
-            "data_dir": str(config.data_dir),
-            "raw_dir": str(config.raw_dir),
-            "interim_dir": str(config.interim_dir),
-            "processed_dir": str(config.processed_dir),
-            "target_column": config.target_column,
-            "group_column": config.group_column,
-            "test_size": config.test_size,
-            "val_size": config.val_size,
-            "random_state": config.random_state,
-            "include_champs": config.include_champs,
-            "min_curated_duration_seconds": config.min_curated_duration_seconds,
-        },
-        "raw_tables": {
-            name: {
-                "rows": int(len(frame)),
-                "columns": int(len(frame.columns)),
-            }
-            for name, frame in tables.items()
-        },
-        "merged": _frame_summary(cleaned, target_col=config.target_column),
-        "splits": {
-            "train": _frame_summary(train_frame, target_col=config.target_column),
-            "val": _frame_summary(val_frame, target_col=config.target_column),
-            "test": _frame_summary(test_frame, target_col=config.target_column),
-        },
-        "team_level_integrity": {
-            "merged": _team_integrity_summary(cleaned, target_col=config.target_column),
-            "train": _team_integrity_summary(
-                train_frame, target_col=config.target_column
-            ),
-            "val": _team_integrity_summary(val_frame, target_col=config.target_column),
-            "test": _team_integrity_summary(
-                test_frame, target_col=config.target_column
-            ),
-        },
-        "feature_engineering": {
-            "summary_file": str(processed_dir / "feature_engineering_summary.json"),
-            "rows": feature_summary["rows"],
-            "feature_count": feature_summary["feature_counts"]["final_selected"],
-            "feature_counts": feature_summary["feature_counts"],
-            "outputs": feature_summary["outputs"],
-        },
-        "output_files": {
-            "merged": str(merged_path),
-            "train": str(train_path),
-            "val": str(val_path),
-            "test": str(test_path),
-        },
-    }
-
-    _dump_json(summary_path, summary)
-    logger.info("Wrote pipeline summary to %s", summary_path)
+        _dump_json(summary_path, summary)
+        logger.info("Wrote pipeline summary to %s", summary_path)
+        progress.update(1)
 
     return summary
 

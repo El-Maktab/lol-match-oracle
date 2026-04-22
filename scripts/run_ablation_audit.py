@@ -10,6 +10,8 @@ if __package__ is None or __package__ == "":
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from tqdm.auto import tqdm
+
 from oracle.models import ModelConfig, Trainer, TrainingConfig
 from oracle.models.trainer import load_feature_splits
 from oracle.utils import load_yaml_config
@@ -149,7 +151,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--run-all-profiles",
         action="store_true",
-        help="When --progressive is enabled, evaluate all profiles even after finding a meaningful drop.",
+        help=(
+            "When --progressive is enabled, evaluate all profiles "
+            "even after finding a meaningful drop."
+        ),
     )
     parser.add_argument(
         "--meaningful-drop-accuracy",
@@ -193,10 +198,7 @@ def _metric_delta(
     full_metrics: dict[str, float], ablated_metrics: dict[str, float]
 ) -> dict[str, float]:
     shared = sorted(set(full_metrics).intersection(ablated_metrics))
-    return {
-        key: float(ablated_metrics[key] - full_metrics[key])
-        for key in shared
-    }
+    return {key: float(ablated_metrics[key] - full_metrics[key]) for key in shared}
 
 
 def _is_meaningful_drop(
@@ -255,7 +257,9 @@ def main() -> None:
         model_name_override=args.model_name,
     )
 
-    train_frame, val_frame, test_frame = load_feature_splits(base_training.processed_dir)
+    train_frame, val_frame, test_frame = load_feature_splits(
+        base_training.processed_dir
+    )
 
     required_columns = set(base_training.id_columns) | {base_training.target_column}
     feature_columns = [
@@ -263,9 +267,9 @@ def main() -> None:
     ]
 
     full_training = _clone_training_config(base_training, run_name=args.full_run_name)
-    full_result = Trainer(training_config=full_training, model_config=model_config).train(
-        train_frame, val_frame, test_frame
-    )
+    full_result = Trainer(
+        training_config=full_training, model_config=model_config
+    ).train(train_frame, val_frame, test_frame)
     full_metrics = _metric_subset(full_result.metrics)
 
     if not args.progressive:
@@ -317,10 +321,13 @@ def main() -> None:
         profile_summaries: list[dict[str, Any]] = []
         first_meaningful_profile: str | None = None
 
-        for index, (profile_name, patterns) in enumerate(
-            STRICT_ABLATION_PROFILES,
-            start=1,
-        ):
+        profile_iterator = tqdm(
+            enumerate(STRICT_ABLATION_PROFILES, start=1),
+            total=len(STRICT_ABLATION_PROFILES),
+            desc="Ablation profiles",
+            unit="profile",
+        )
+        for index, (profile_name, patterns) in profile_iterator:
             columns_to_drop = _pick_columns_to_drop(feature_columns, patterns)
             profile_run_name = f"{args.ablated_run_name}-{index:02d}-{profile_name}"
 
@@ -361,7 +368,11 @@ def main() -> None:
             }
             profile_summaries.append(profile_summary)
 
-            print(
+            profile_iterator.set_postfix(
+                dropped=len(columns_to_drop),
+                meaningful=meaningful,
+            )
+            tqdm.write(
                 f"Profile {index}: {profile_name} | "
                 f"dropped={len(columns_to_drop)} | "
                 f"meaningful_drop={meaningful}"
