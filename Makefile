@@ -1,6 +1,6 @@
 # NOTE: Just used to simplify running commands :)
 
-.PHONY: help setup lint data pipeline train ablation-audit ablation-audit-strict mlflow-ui validate
+.PHONY: help setup lint data pipeline train tune ablation-audit ablation-audit-strict mlflow-ui validate
 
 help:
 	@echo "Available commands:"
@@ -10,6 +10,7 @@ help:
 	@echo "  data                   : Download Kaggle dataset to data/raw"
 	@echo "  pipeline               : Run the data pipeline and write split datasets"
 	@echo "  train                  : Run model training on processed feature splits"
+	@echo "  tune                   : Run Optuna hyperparameter tuning with MLflow logging"
 	@echo "  ablation-audit         : Run full-vs-ablated leakage audit training"
 	@echo "  ablation-audit-strict  : Run progressive strict ablation profiles until meaningful drop"
 	@echo "  mlflow-ui              : Launch local MLflow tracking UI"
@@ -32,6 +33,9 @@ pipeline:
 
 train:
 	uv run python scripts/run_training.py
+
+tune:
+	uv run python scripts/run_optimization.py
 
 ablation-audit:
 	uv run python scripts/run_ablation_audit.py
