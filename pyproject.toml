@@ -26,6 +26,7 @@ dependencies = [
     "tqdm>=4.67.1",
     "xgboost>=3.2.0",
     "lightgbm>=4.6.0",
+    "shap>=0.51.0",
 ]
 
 [dependency-groups]

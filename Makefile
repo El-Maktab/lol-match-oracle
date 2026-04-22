@@ -1,6 +1,6 @@
 # NOTE: Just used to simplify running commands :)
 
-.PHONY: help setup lint data pipeline train tune ablation-audit ablation-audit-strict mlflow-ui validate
+.PHONY: help setup lint data pipeline train tune ablation-audit ablation-audit-strict mlflow-ui validate evaluate serve
 
 help:
 	@echo "Available commands:"
@@ -11,11 +11,13 @@ help:
 	@echo "  pipeline               : Run the data pipeline and write split datasets"
 	@echo "  train                  : Run model training on processed feature splits"
 	@echo "  tune                   : Run Optuna hyperparameter tuning with MLflow logging"
+	@echo "  evaluate               : Evaluate champion model on held-out test set"
 	@echo "  ablation-audit         : Run full-vs-ablated leakage audit training"
 	@echo "  ablation-audit-strict  : Run progressive strict ablation profiles until meaningful drop"
 	@echo "  mlflow-ui              : Launch local MLflow tracking UI"
 	@echo "  validate               : Run Great Expectations data quality checkpoints"
-	@echo "  lint                   : Run lint" 
+	@echo "  lint                   : Run ruff linter on src/"
+	@echo "  serve                  : Start FastAPI prediction server (uvicorn)"
 	@echo ""
 
 setup:
@@ -48,3 +50,9 @@ mlflow-ui:
 
 validate:
 	uv run python scripts/run_data_quality.py
+
+evaluate:
+	uv run python scripts/run_evaluation.py
+
+serve:
+	uv run uvicorn oracle.serving.api:app --host 0.0.0.0 --port 8000 --reload
