@@ -54,11 +54,21 @@ def fit_champion_encoders(
     candidate_columns = [
         "championid",
         "championid_mode",
+        "champion_1",
+        "champion_2",
+        "champion_3",
+        "champion_4",
+        "champion_5",
         "top_championid",
         "jungle_championid",
         "mid_championid",
         "adc_championid",
         "support_championid",
+        "banned_champion_1",
+        "banned_champion_2",
+        "banned_champion_3",
+        "banned_champion_4",
+        "banned_champion_5",
     ]
     present = [col for col in candidate_columns if col in train_df.columns]
 

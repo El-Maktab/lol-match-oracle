@@ -35,8 +35,19 @@ from .tree_models import build_tree_model
 ALLOWED_EXPERIMENT_NAMES = (
     "01-baselines",
     "02-advanced-models",
+    "03-pregame",
     "05-final-champion",
 )
+
+SUPPORTED_SCOPES = ("postgame", "pregame")
+
+
+def _feature_file_prefix(scope: str) -> str:
+    if scope not in SUPPORTED_SCOPES:
+        allowed = ", ".join(SUPPORTED_SCOPES)
+        raise ValueError(f"Unsupported scope '{scope}'. Use one of: {allowed}")
+    return "" if scope == "postgame" else "pregame_"
+
 
 ADVANCED_MODEL_NAMES = {
     "random_forest",
@@ -123,6 +134,7 @@ class TrainingConfig:
     target_column: str = TARGET_COLUMN
     id_columns: tuple[str, ...] = ("matchid", "teamid")
     random_state: int = DEFAULT_RANDOM_STATE
+    scope: str = "postgame"
 
     @classmethod
     def from_mapping(
@@ -132,6 +144,7 @@ class TrainingConfig:
         base_dir: Path,
         experiment_name_override: str | None = None,
         run_name_override: str | None = None,
+        scope_override: str | None = None,
     ) -> TrainingConfig:
         """Build training config from a flat YAML mapping."""
 
@@ -148,6 +161,9 @@ class TrainingConfig:
         run_name = run_name_override or str(
             mapping.get("run_name", "logistic-regression-baseline")
         )
+
+        scope = str(scope_override or mapping.get("scope", "postgame")).strip().lower()
+        _feature_file_prefix(scope)
 
         return cls(
             experiment_name=experiment_name,
@@ -171,6 +187,7 @@ class TrainingConfig:
             target_column=str(mapping.get("target_column", TARGET_COLUMN)),
             id_columns=_parse_id_columns(mapping.get("id_columns", "matchid,teamid")),
             random_state=int(mapping.get("random_state", DEFAULT_RANDOM_STATE)),
+            scope=scope,
         )
 
 
@@ -211,18 +228,22 @@ class ModelFactory:
 
 def load_feature_splits(
     processed_dir: Path,
+    *,
+    scope: str = "postgame",
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Load train/val/test feature files from the processed directory."""
 
-    train_path = processed_dir / "train_features.csv.gz"
-    val_path = processed_dir / "val_features.csv.gz"
-    test_path = processed_dir / "test_features.csv.gz"
+    prefix = _feature_file_prefix(scope)
+
+    train_path = processed_dir / f"{prefix}train_features.csv.gz"
+    val_path = processed_dir / f"{prefix}val_features.csv.gz"
+    test_path = processed_dir / f"{prefix}test_features.csv.gz"
 
     for path in (train_path, val_path, test_path):
         if not path.exists():
             raise FileNotFoundError(
                 f"Expected processed feature split at {path}. "
-                "Run scripts/run_pipeline.py first."
+                f"Run scripts/run_pipeline.py --scope {scope} first."
             )
 
     return (
@@ -499,6 +520,7 @@ class Trainer:
             "id_columns": list(self.training_config.id_columns),
             "feature_columns": feature_columns,
             "random_state": self.training_config.random_state,
+            "scope": self.training_config.scope,
             "lfd": {
                 # NOTE: Hypothesis class and complexity are explicit for reproducible comparisons.
                 "hypothesis_class_selection": (
@@ -569,7 +591,7 @@ class Trainer:
                 mlflow.set_tags(
                     {
                         "model_name": self.model_config.model_name,
-                        "project_scope": "post-game-team-level",
+                        "project_scope": f"{self.training_config.scope}-team-level",
                         "lfd_generalization": "train-vs-val-vs-test",
                         "lfd_complexity_control": "config-driven-hypothesis-class",
                     }
@@ -581,6 +603,7 @@ class Trainer:
                         "random_state": self.training_config.random_state,
                         "target_column": self.training_config.target_column,
                         "id_columns": ",".join(self.training_config.id_columns),
+                        "scope": self.training_config.scope,
                         "feature_count": len(feature_columns),
                     }
                 )
@@ -659,7 +682,8 @@ class Trainer:
         """Load processed splits and execute one full training run."""
 
         train_frame, val_frame, test_frame = load_feature_splits(
-            self.training_config.processed_dir
+            self.training_config.processed_dir,
+            scope=self.training_config.scope,
         )
         return self.train(
             train_frame,

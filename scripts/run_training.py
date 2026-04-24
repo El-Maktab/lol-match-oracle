@@ -47,6 +47,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional MLflow run-name override.",
     )
+    parser.add_argument(
+        "--scope",
+        type=str,
+        choices=("postgame", "pregame"),
+        default="postgame",
+        help="Which processed feature scope to train on.",
+    )
     return parser.parse_args()
 
 
@@ -61,6 +68,7 @@ def main() -> None:
         base_dir=CONFIGS_DIR.parent,
         experiment_name_override=args.experiment_name,
         run_name_override=args.run_name,
+        scope_override=args.scope,
     )
     model_config = ModelConfig.from_mapping(
         model_mapping,
