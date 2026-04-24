@@ -13,7 +13,7 @@ TARGET_LINKED_EXACT = {
 
 TARGET_LINKED_SUBSTRINGS = (
     "participant_win",
-    "turrent"
+    "turrent",
     "_winrate_te",
     "target_encoding",
     "label_encoding",

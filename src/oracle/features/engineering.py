@@ -118,6 +118,7 @@ def build_feature_datasets(
     *,
     processed_dir: Path,
     target_col: str = "win",
+    output_prefix: str = "",
 ) -> dict[str, Any]:
     _assert_team_frame(train_df, name="train split", target_col=target_col)
     _assert_team_frame(val_df, name="val split", target_col=target_col)
@@ -148,11 +149,11 @@ def build_feature_datasets(
         )
     )
 
-    train_out = processed_dir / "train_features.csv.gz"
-    val_out = processed_dir / "val_features.csv.gz"
-    test_out = processed_dir / "test_features.csv.gz"
-    preprocessor_out = processed_dir / "feature_preprocessor.pkl"
-    summary_out = processed_dir / "feature_engineering_summary.json"
+    train_out = processed_dir / f"{output_prefix}train_features.csv.gz"
+    val_out = processed_dir / f"{output_prefix}val_features.csv.gz"
+    test_out = processed_dir / f"{output_prefix}test_features.csv.gz"
+    preprocessor_out = processed_dir / f"{output_prefix}feature_preprocessor.pkl"
+    summary_out = processed_dir / f"{output_prefix}feature_engineering_summary.json"
 
     _write_csv_gz(train_features, train_out)
     _write_csv_gz(val_features, val_out)
@@ -163,9 +164,9 @@ def build_feature_datasets(
     summary: dict[str, Any] = {
         "scope": "post-game analysis with team-aggregated features",
         "inputs": {
-            "train": str(processed_dir / "train.csv.gz"),
-            "val": str(processed_dir / "val.csv.gz"),
-            "test": str(processed_dir / "test.csv.gz"),
+            "train": str(processed_dir / f"{output_prefix}train.csv.gz"),
+            "val": str(processed_dir / f"{output_prefix}val.csv.gz"),
+            "test": str(processed_dir / f"{output_prefix}test.csv.gz"),
         },
         "outputs": {
             "train_features": str(train_out),

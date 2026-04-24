@@ -238,6 +238,7 @@ def _clone_training_config(base: TrainingConfig, *, run_name: str) -> TrainingCo
         target_column=base.target_column,
         id_columns=base.id_columns,
         random_state=base.random_state,
+        scope=base.scope,
     )
 
 
@@ -258,7 +259,8 @@ def main() -> None:
     )
 
     train_frame, val_frame, test_frame = load_feature_splits(
-        base_training.processed_dir
+        base_training.processed_dir,
+        scope=base_training.scope,
     )
 
     required_columns = set(base_training.id_columns) | {base_training.target_column}
