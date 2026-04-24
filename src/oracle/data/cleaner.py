@@ -106,7 +106,7 @@ def clean_match_dataset(
     numeric_cols = cleaned.select_dtypes(include=["number"]).columns
     cleaned[numeric_cols] = cleaned[numeric_cols].fillna(0)
 
-    object_cols = cleaned.select_dtypes(include=["object", "str"]).columns
+    object_cols = cleaned.select_dtypes(include=["object", "string"]).columns
     if len(object_cols) > 0:
         cleaned[object_cols] = cleaned[object_cols].fillna("unknown")
 

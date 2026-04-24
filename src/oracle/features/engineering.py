@@ -7,15 +7,16 @@ from typing import Any
 
 import pandas as pd
 
-from .champion_features import apply_champion_encoders, fit_champion_encoders
-from .pipeline import fit_transform_feature_splits
-from .player_features import add_player_features
-from .team_features import add_team_features
 from ..utils.constants import (
     EXPECTED_TEAM_ROWS_PER_MATCH,
     TEAM_IDS,
     TEAM_KEY_COLUMNS,
 )
+from ..utils.leakage import split_leaky_feature_columns
+from .champion_features import apply_champion_encoders, fit_champion_encoders
+from .pipeline import fit_transform_feature_splits
+from .player_features import add_player_features
+from .team_features import add_team_features
 
 
 def _assert_team_frame(df: pd.DataFrame, *, name: str, target_col: str) -> None:
@@ -84,7 +85,12 @@ def _select_candidate_features(frame: pd.DataFrame, *, target_col: str) -> list[
     }
 
     numeric_features = frame.select_dtypes(include=["number"]).columns.tolist()
-    return [col for col in numeric_features if col not in reserved]
+    candidate_numeric = [col for col in numeric_features if col not in reserved]
+    safe_features, _ = split_leaky_feature_columns(
+        candidate_numeric,
+        target_col=target_col,
+    )
+    return safe_features
 
 
 def _write_csv_gz(df: pd.DataFrame, path: Path) -> None:
